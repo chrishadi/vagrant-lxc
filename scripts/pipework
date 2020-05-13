@@ -154,7 +154,11 @@ done < /proc/mounts
 }
 
 # Try to find a cgroup matching exactly the provided name.
-N=$(find "$CGROUPMNT" -name "$GUESTNAME" | wc -l)
+M=$(find "$CGROUPMNT" -name "lxc.*.$GUESTNAME")
+N=$(echo "$M" | wc -l)
+if [ -z "$M" ] ; then
+    N=0
+fi
 case "$N" in
   0)
     # If we didn't find anything, try to lookup the container with Docker.
@@ -162,6 +166,7 @@ case "$N" in
       RETRIES=3
       while [ "$RETRIES" -gt 0 ]; do
         DOCKERPID=$(docker inspect --format='{{ .State.Pid }}' "$GUESTNAME")
+
         [ "$DOCKERPID" != 0 ] && break
         sleep 1
         RETRIES=$((RETRIES - 1))
@@ -179,6 +184,9 @@ case "$N" in
     fi
     ;;
   1) true ;;
+  2)  # LXC >=3.1.0 returns two entries from the cgroups mount instead of one.
+      echo "$M" | grep -q "lxc\.monitor" || die 1 "Found more than one container matching $GUESTNAME."
+      ;;
   *) die 1 "Found more than one container matching $GUESTNAME." ;;
 esac
 
@@ -235,7 +243,7 @@ fi
 if [ "$DOCKERPID" ]; then
   NSPID=$DOCKERPID
 else
-  NSPID=$(head -n 1 "$(find "$CGROUPMNT" -name "$GUESTNAME" | head -n 1)/tasks")
+  NSPID=$(head -n 1 "$(find "$CGROUPMNT" -name "lxc.payload.$GUESTNAME" | head -n 1)/tasks")
   [ "$NSPID" ] || {
     # it is an alternative way to get the pid
     NSPID=$(lxc-info -n  "$GUESTNAME" | grep PID | grep -Eo '[0-9]+')
